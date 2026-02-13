@@ -38,13 +38,13 @@ import com.google.gson.JsonObject;
 public class ChatLoadTestClientWithMetrics {
     
     // ==================== Assignment Requirements ====================
-    private static final int TOTAL_MESSAGES = 500_000;  // Full test as per assignment
+    private static final int TOTAL_MESSAGES = 500_000;
     private static final int WARMUP_THREADS = 32;
     private static final int WARMUP_MESSAGES_PER_THREAD = 1000;
     
     // ==================== Room Configuration ====================
     private static final int TOTAL_ROOMS = 20;
-    private static final int CONNECTIONS_PER_ROOM = 5;  // 5 per room × 20 = 100 connections
+    private static final int CONNECTIONS_PER_ROOM = 1; 
     private static final int TOTAL_CONNECTIONS = TOTAL_ROOMS * CONNECTIONS_PER_ROOM; // 100
 
     // ==================== t2.micro Optimized Configuration ====================
@@ -52,9 +52,9 @@ public class ChatLoadTestClientWithMetrics {
     // More connections = more parallelism potential when server can handle
     private static final int MAIN_THREADS = 2;
 
-    // Retry configuration (as per assignment: max 5 retries with exponential backoff)
+    // Retry configuration
     private static final int MAX_RETRIES = 5;
-    private static final long INITIAL_BACKOFF_MS = 1;  // 1ms backoff (I/O 密集型不需要长等待)
+    private static final long INITIAL_BACKOFF_MS = 1; 
     private static final long MAX_BACKOFF_MS = 50;     // Maximum 50ms backoff
     
     // ==================== Server Configuration ====================
@@ -160,20 +160,28 @@ public class ChatLoadTestClientWithMetrics {
         
         ChatLoadTestClientWithMetrics instance = new ChatLoadTestClientWithMetrics();
         
-        // Phase 1: Generate Main Messages (500,000) - runs in background
-        System.out.println("\n[Phase 1] Generating " + TOTAL_MESSAGES + " main messages...");
+        // Phase 1: Generate Warmup Messages (32,000) - runs in background
+        System.out.println("\n[Phase 1] Generating " + (WARMUP_THREADS * WARMUP_MESSAGES_PER_THREAD) + " warmup messages...");
+        Thread warmupGenerator = new Thread(instance::generateWarmupMessages);
+        warmupGenerator.start();
+        
+        // Wait for warmup messages to be generated
+        warmupGenerator.join();
+        
+        // Phase 2: Generate Main Messages (500,000) - runs in background
+        System.out.println("\n[Phase 2] Generating " + TOTAL_MESSAGES + " main messages...");
         Thread mainGenerator = new Thread(instance::generateMainMessages);
         mainGenerator.start();
         
-        // Phase 2: Warmup (32 threads × 1000 messages)
-        System.out.println("\n[Phase 2] Running warmup phase...");
+        // Phase 3: Warmup (32 threads × 1000 messages)
+        System.out.println("\n[Phase 3] Running warmup phase...");
         long warmupStart = System.currentTimeMillis();
         instance.runWarmupPhase();
         long warmupEnd = System.currentTimeMillis();
-        System.out.println("[Phase 2] Warmup completed in " + (warmupEnd - warmupStart) / 1000.0 + "s");
+        System.out.println("[Phase 3] Warmup completed in " + (warmupEnd - warmupStart) / 1000.0 + "s");
         
-        // Phase 3: Main Load Test
-        System.out.println("\n[Phase 3] Running main load test...");
+        // Phase 4: Main Load Test
+        System.out.println("\n[Phase 4] Running main load test...");
         long mainStart = System.currentTimeMillis();
         instance.runMainPhase();
         long mainEnd = System.currentTimeMillis();
@@ -280,10 +288,8 @@ public class ChatLoadTestClientWithMetrics {
                     
                     int messagesSent = 0;
                     
-                    // 极速发送循环 (非阻塞)
                     for (int j = 0; j < WARMUP_MESSAGES_PER_THREAD; j++) {
                         try {
-                            // 使用 take() 阻塞直到拿到消息，保证发满 1000 条
                             ChatMessage msg = warmupQueue.take();
                             msg.setRoomId(roomId);
                             client.send(gson.toJson(msg));
@@ -294,8 +300,6 @@ public class ChatLoadTestClientWithMetrics {
                         }
                     }
                     
-                    // 发送完毕后，统一等待所有响应回来
-                    // 30秒超时防止死锁
                     boolean completed = threadLatch.await(30, TimeUnit.SECONDS);
                     
                     client.closeBlocking();
@@ -326,7 +330,6 @@ public class ChatLoadTestClientWithMetrics {
             @Override
             public void onMessage(String message) {
                 try {
-                    // 简单的成功检查（为了性能，可以用 contains）
                     if (message != null && message.contains("SUCCESS")) {
                         successCount.incrementAndGet();
                     } else {
@@ -335,7 +338,6 @@ public class ChatLoadTestClientWithMetrics {
                 } catch (Exception e) {
                     failureCount.incrementAndGet();
                 } finally {
-                    // 无论成功失败，都释放 Latch
                     threadLatch.countDown();
                 }
             }
