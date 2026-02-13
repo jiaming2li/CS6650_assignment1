@@ -1,10 +1,6 @@
 
 # 1. Git Repository URL
-- `/server` - Server implementation with deployment instructions
-- `/client-part1` - Basic load testing client
-- `/client-part2` - Client with performance analysis
-- `/results` - Test results and analysis
-- Include README files with clear running instructions
+https://github.com/jiaming2li/CS6650_assignment1.git
 
 # 2. Design Document
 ## Architecture diagram
