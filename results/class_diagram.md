@@ -165,24 +165,32 @@ classDiagram
 ```
 
 ## Threading model explanation
-Main thread, running `main()`.
-**Warmup Phase**: one thread for message generation(put in `warmupQueue`, 32,000 capacity) and 32 threads where each thread creates a fixed connection with a random room(1-20) and sends 1,000 messages to this room.
-**Main Phase** one thread for message generation(put in `mainQueue`, 20,000 capacity). Message queues buffer messages between generation and sending, ensuring smooth pipelining. Use 2 sender threads to send 500,000 messages as consider the overhead of t2.micro switching between threads.
+Main thread, running `main()`.  
+
+**Warmup Phase**: one thread for message generation(put in `warmupQueue`, 32,000 capacity) and 32 threads where each thread creates a fixed connection with a random room(1-20) and sends 1,000 messages to this room.  
+
+**Main Phase** one thread for message generation(put in `mainQueue`, 20,000 capacity). Message queues buffer messages between generation and sending, ensuring smooth pipelining. Use 2 sender threads to send 500,000 messages as consider the overhead of t2.micro switching between threads. I tried 3/4/32 threads and can not achieve ideal throughput, showing that the bottleneck is CPU.
 
 ## WebSocket connection management strategy
-**Warmup Phase**: each thread creates a fixed connection with a random room(1-20).
-**Main Phase**: use connection pool where 20 rooms each maintain 5 persistent connections (100 total), avoiding repeated TCP handshake overhead. The `ConnectionManager` handles connection lifecycle: `initializeConnectionPools()` creates connections per room, `round-robin` selection distributes load via `roomCounters`. All connections are properly closed via `closeAllConnections()` after testing.
+Main thread, running `main()`.   
+
+**Warmup Phase**: each thread creates a fixed connection with a random room(1-20).  
+
+**Main Phase**: use connection pool where 20 rooms each maintain 1 persistent connections (20 total). Sender picks corresponding connection according to message's roomId and sends through the connection. I tried 2/3/5 connections per room and can not achieve ideal throughput. I assumed that CPU can not handle more concurrent messages.
 
 ## Little's Law calculations and predictions
+![p1](RTT.png)
+I tested mean single message RTT(0.68ms), meaning the theoritical throughput is 20/0.68=29411. But as the cost of Epoll/select round robin, context switching, CPU switching, lock contention, the real throughput is a little bit smaller than 29411(24000+ to 26000+). 
 
 
 # 3. Test Results
 ## Screenshot of Part 1
 
-![p1](client_part1.png)
+![client1](client_1.png)
 
 ## Screenshot of Part 2
-![p2](client_part2.png)
+![client2](client_2_1.png)
+![client2](client_2_2.png)
 
 
 ## Performance analysis charts
