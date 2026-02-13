@@ -167,12 +167,11 @@ classDiagram
 ## Threading model explanation
 Main thread, running `main()`.  
 
-**Warmup Phase**: one thread for message generation(put in `warmupQueue`, 32,000 capacity) and 32 threads where each thread creates a fixed connection with a random room(1-20) and sends 1,000 messages to this room.  
+**Warmup Phase**: one thread for message generation(put in `warmupQueue`, 32,000 capacity) and 32 threads(threadpool) where each thread creates a fixed connection with a random room(1-20) and sends 1,000 messages to this room.  
 
-**Main Phase** one thread for message generation(put in `mainQueue`, 20,000 capacity). Message queues buffer messages between generation and sending, ensuring smooth pipelining. Use 2 sender threads to send 500,000 messages as consider the overhead of t2.micro switching between threads. I tried 3/4/32 threads and can not achieve ideal throughput, showing that the bottleneck is 1 vCPU.
+**Main Phase** one thread for message generation(put in `mainQueue`, 20,000 capacity). Message queues buffer messages between generation and sending, ensuring smooth pipelining. Use 2 sender threads(threadpool) to send 500,000 messages as consider the overhead of t2.micro switching between threads. I tried 3/4/32 threads and can not achieve ideal throughput, showing that the bottleneck is 1 vCPU.
 
-## WebSocket connection management strategy
-Main thread, running `main()`.   
+## WebSocket connection management strategy 
 
 **Warmup Phase**: each thread creates a fixed connection with a random room(1-20).  
 
