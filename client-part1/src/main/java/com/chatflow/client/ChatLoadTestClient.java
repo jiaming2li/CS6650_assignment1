@@ -37,7 +37,7 @@ public class ChatLoadTestClient {
     private static final int WARMUP_THREADS = 32;
     private static final int WARMUP_MSGS_PER_THREAD = 1000;
     private static final int TOTAL_ROOMS = 20;
-    private static final int CONNECTIONS_PER_ROOM = 5;
+    private static final int CONNECTIONS_PER_ROOM = 1;
     private static final int MAIN_THREADS = 2;
     private static final String SERVER_HOST = System.getenv("SERVER_HOST") != null ? 
         System.getenv("SERVER_HOST") : "localhost";
@@ -57,6 +57,10 @@ public class ChatLoadTestClient {
     // Connection pools
     private final ConcurrentHashMap<Integer, List<WebSocketClient>> roomPools = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Integer, AtomicInteger> roomCounters = new ConcurrentHashMap<>();
+    
+    // Track main test duration
+    private long mainTestStart = 0;
+    private long mainTestEnd = 0;
 
     // Message pool
     private static final String[] MESSAGES = {
@@ -121,10 +125,8 @@ public class ChatLoadTestClient {
                     
                     int messagesSent = 0;
                     
-                    // 极速发送循环 (非阻塞)
                     for (int j = 0; j < WARMUP_MSGS_PER_THREAD; j++) {
                         try {
-                            // 使用 take() 阻塞直到拿到消息，保证发满 1000 条
                             ChatMessage msg = warmupQueue.take();
                             msg.setRoomId(roomId);
                             client.send(toJson(msg));
@@ -135,16 +137,13 @@ public class ChatLoadTestClient {
                         }
                     }
                     
-                    // 发送完毕后，统一等待所有响应回来
-                    // 30秒超时防止死锁
                     boolean completed = threadLatch.await(30, TimeUnit.SECONDS);
                     
                     client.closeBlocking();
                     
                     //Only log first 3 threads to reduce output
                     if (threadIdx < 3) {
-                        System.out.println("Warmup thread " + threadIdx + " finished. Sent: " + messagesSent 
-                                          + ", All ACKed: " + completed);
+                        System.out.println("Warmup thread " + threadIdx + " finished. Sent: " + messagesSent);
                     }
                 } catch (Exception e) {
                     System.err.println("Warmup error: " + e.getMessage());
@@ -176,7 +175,6 @@ public class ChatLoadTestClient {
             @Override
             public void onMessage(String message) {
                 try {
-                    // 简单的成功检查（为了性能，可以用 contains）
                     if (message != null && message.contains("SUCCESS")) {
                         successCount.incrementAndGet();
                     } else {
@@ -185,7 +183,6 @@ public class ChatLoadTestClient {
                 } catch (Exception e) {
                     failureCount.incrementAndGet();
                 } finally {
-                    // 无论成功失败，都释放 Latch
                     threadLatch.countDown();
                 }
             }
@@ -231,6 +228,7 @@ public class ChatLoadTestClient {
         ExecutorService executor = Executors.newFixedThreadPool(MAIN_THREADS);
         CountDownLatch latch = new CountDownLatch(MAIN_THREADS);
         long testStart = System.currentTimeMillis();
+        mainTestStart = testStart;
         
         for (int i = 0; i < MAIN_THREADS; i++) {
             executor.submit(() -> {
@@ -258,6 +256,7 @@ public class ChatLoadTestClient {
         generator.join();
         
         long testEnd = System.currentTimeMillis();
+        mainTestEnd = testEnd;
         System.out.println("Main phase completed in " + (testEnd - testStart) / 1000.0 + "s");
     }
 
@@ -318,9 +317,10 @@ public class ChatLoadTestClient {
         int total = successCount.get() + failureCount.get();
         System.out.println("3. Total sent: " + total);
         
-        // Calculate throughput
-        double throughput = total / 30.0; // Rough estimate
-        System.out.println("4. Throughput: ~" + String.format("%.0f", throughput) + " msgs/s");
+        // Calculate throughput using actual test duration
+        double actualDuration = (mainTestEnd - mainTestStart) / 1000.0;
+        double throughput = total / actualDuration;
+        System.out.println("4. Throughput: " + String.format("%.0f", throughput) + " msgs/s (" + String.format("%.2f", actualDuration) + "s actual)");
     }
 
     // ============ Helper Methods ============
